@@ -15,7 +15,9 @@ section.has-dark-background, section.has-dark-background h1, section.has-dark-ba
  *********************************************/
 body {
   background: #fff;
-  background-color: #fff; }
+  background-color: #fff; 
+  background-image: url('https://user-images.githubusercontent.com/7054676/47556035-f5837400-d93f-11e8-9007-273b4a422748.png');
+}
 
 .reveal {
   font-family: "Lato", sans-serif;

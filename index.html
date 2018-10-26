@@ -4,10 +4,10 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-		<title>reveal.js</title>
+		<title>去 async/await 之路</title>
 
 		<link rel="stylesheet" href="css/reveal.css">
-		<link rel="stylesheet" href="css/theme/black.css">
+		<link rel="stylesheet" href="css/theme/night.css">
 
 		<!-- Theme used for syntax highlighting of code -->
 		<link rel="stylesheet" href="lib/css/zenburn.css">
@@ -24,8 +24,398 @@
 	<body>
 		<div class="reveal">
 			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
+				<section>
+					<h3 style="font-family: 迷你简启体; color: gray;">去 async/await 之路</h3>
+					<ul>
+						<li class="fragment">async/await 的前世今生</li>
+						<li class="fragment">我们为什么要选择 async/await </li>
+						<li class="fragment">我们为什么要去 async/await </li>
+					</ul>	
+					
+					<p>
+						<small>by <a href="https://manjusaka.itscoder.com/">李者璈</a> / <a href="https://github.com/Zheaoli">@Manjusaka</a></small>
+					</p>
+				</section>
+				<section>
+						<h3>async/await 的前世今生</h3>
+					</section>
+					<section>
+						<p>闲聊 async/await 的发展史</p>
+						<ul>
+							<li class="fragment">async/await 是一个全新的东西么？</li>
+							<li class="fragment">官方的 asyncio 库是怎么样运作的？</li>
+						</ul>
+					</section>
+					<section>
+						<a href="https://www.python.org/dev/peps/pep-0255/">Simple Generators</a>
+						<ul>
+							<li class="fragment"><b>语法上和函数类似</b>：生成器函数和常规函数几乎是一样的。它们都是使用 def 语句进行定义，差别在于，生成器使用 yield 语句返回一个值，而常规函数使用 return 语句返回一个值</li>
+							<li class="fragment"><b>自动实现迭代器协议</b>：对于生成器，Python 会自动实现迭代器协议，以便应用到迭代背景中（如 for 循环，sum 函数）。由于生成器自动实现了迭代器协议，所以，我们可以调用它的 next 方法，并且，在没有值可以返回的时候，生成器自动产生 StopIteration 异常</li>
+						</ul>
+					</section>
+					<section>
+							<a href="https://www.python.org/dev/peps/pep-0255/">Simple Generators</a>
+							<ul>
+								<li class="fragment"><b>状态挂起</b>：生成器使用 yield 语句返回一个值。yield 语句挂起该生成器函数的状态，保留足够的信息，以便之后从它离开的地方继续执行</li>
+								<li class="fragment">正是因为有这些特性，Generator 让我们对大量数据的处理有了更好的掌控。</li>
+							</ul>
+					</section>
+					<section>
+						<p>yield 的一个小例子</p>
+						<pre><code code data-trim class="python">
+def fib(number):
+    n, a, b = 0, 0, 1
+    while n < number:
+        yield b
+        a, b = b, a + b
+        n += 1
+
+
+for i in fib(1000000):
+    print(i)
+						</code></pre>
+					</section>
+					<section>
+						<a href="https://www.python.org/dev/peps/pep-0342/">Coroutines via Enhanced Generators</a>
+						<ul>
+							<li class="fragment">第一次在 Python 中引入 coroutine 的概念</li>
+							<li class="fragment">通过引入 send 等方法，让 generator 具备内外数据交流的能力，使的 coroutine 的实现成为现实</li>
+						</ul>
+					</section>
+					<section>
+						<p>一个小例子</p>
+						<pre><code data-trim class="python">
+import time
+
+
+def consumer():
+    r = ''
+    while True:
+        n = yield r
+        if not n:
+            return
+        print('[CONSUMER] Consuming %s...' % n)
+        time.sleep(1)
+        r = '200 OK'
+
+
+def produce(c):
+    next(c)
+    n = 0
+    while n < 5:
+        n = n + 1
+        print('[PRODUCER] Producing %s...' % n)
+        r = c.send(n)
+        print('[PRODUCER] Consumer return: %s' % r)
+    c.close()
+
+
+c = consumer()
+produce(c)
+						</code></pre>
+					</section>
+					<section>
+						<a href="https://www.python.org/dev/peps/pep-0380/">Syntax for Delegating to a Subgenerator</a>
+						<ul>
+							<li class="fragment">Python 3.3 引入</li>
+							<li class="fragment">通过引入 yield from 语法，来优化生成器嵌套时的使用体验。</li>
+						</ul>
+					</section>
+					<section>
+						<p>yield from 的小例子</p>
+						<pre><code data-trim class="python">
+import collections
+
+Result = collections.namedtuple("Result", ["count", "average"])
+
+
+def get_average():
+    total = 0
+    count = 0
+    average = None
+    while True:
+        term = yield
+        if term is None:
+            break
+        total += term
+        count += 1
+        average = total / count
+    return Result(count, average)
+
+
+def grouper(results, key):
+    while True:
+        results[key] = yield from get_average()
+
+
+# 调用方
+def main(data):
+    results = {}
+    for key, values in data.items():
+        group = grouper(results, key)
+        next(group)
+        for value in values:
+            group.send(value)
+        group.send(None)
+    report(results)
+
+
+def report(results):
+    for key, result in sorted(results.items()):
+        group, unit = key.split(';')
+        print('{:2} {:5} averaging {:.2f}{}'.format(result.count, group, result.average, unit))
+
+
+data = {
+    'girls;kg': [40, 41, 42, 43, 44, 54],
+    'girls;m': [1.5, 1.6, 1.8, 1.5, 1.45, 1.6],
+    'boys;kg': [50, 51, 62, 53, 54, 54],
+    'boys;m': [1.6, 1.8, 1.8, 1.7, 1.55, 1.6],
+}
+
+main(data)
+						</code></pre>
+					</section>
+					<section>
+						<a href="https://www.python.org/dev/peps/pep-3156/">Asynchronous IO Support Rebooted</a>
+						<ul>
+							<li class="fragment">Python 3.4 引入</li>
+							<li class="fragment">基于 yield form/yield</li>
+							<li class="fragment">底层驱动可以替换</li>
+						</ul>
+					</section>
+					<section>
+						<p>还还还是一小段代码</p>
+						<pre><code data-trim class="python">
+import asyncio
+
+
+# Notice the decorator!
+@asyncio.coroutine
+def compute(x, y):
+    print("Compute %s + %s ..." % (x, y))
+    # Pause the coroutine for 1 second by yielding from asyncio's built in
+    # sleep coroutine. This simulates the time taken by a non-blocking I/O
+    # call. During this time the event loop can get on with other things.
+    yield from asyncio.sleep(1.0)
+    # Actually return a result!
+    return x + y
+
+
+@asyncio.coroutine
+def print_sum(x, y):
+    # Pause the coroutine until the compute() coroutine has a result.
+    result = yield from compute(x, y)
+    # The following print() function won't be called until there's a result.
+    print("%s + %s = %s" % (x, y, result))
+
+
+# Reference the event loop.
+loop = asyncio.get_event_loop()
+# Start the event loop and continue until print_sum() is complete.
+loop.run_until_complete(print_sum(1, 2))
+# Shut down the event loop.
+loop.close()
+
+						</code></pre>
+					</section>
+					<section>
+						<p>asyncio 的原理</p>
+						<img src="https://user-images.githubusercontent.com/7054676/41167945-022ab9c0-6b77-11e8-947d-a8c66dfda9ae.png" alt="asyncio">
+					</section>
+					<section>
+						<a href="https://www.python.org/dev/peps/pep-0492/">Coroutines with async and await syntax</a>
+						<ul>
+							<li class="fragment">Python 3.5 引入</li>
+							<li class="fragment">引入 async/await 关键字，将 coroutine 和 generator 进行分割。完成语义上的统一</li>
+							<li class="fragment">为后续进一步扩展打下基础，比如异步上下文管理，异步的列表生成式等</li>
+						</ul>
+					</section>
+					<section>
+						<h3>我们为什么要选择 async/await </h3>
+					</section>
+					<section>
+						<h3>我们的场景是什么？</h3>
+					</section>
+					<section>
+						<ul>
+							<li class="fragment">CPU 负载相对较低</li>
+							<li class="fragment">I/O 操作密集</li>
+							<li class="fragment">承担较大访问量</li>
+						</ul>
+					</section>
+					<section>
+						<h3>我们怎么用 async/await ?</h3>
+					</section>
+					<section>
+						<ul>
+							<li class="fragment">线上涉及密集网络请求的部分</li>
+							<li class="fragment">做一些离线任务</li>
+							<li class="fragment">部分项目替换基于  async/await 的框架</li>
+						</ul>
+					</section>
+					<section>
+						<h3>我们为什么去 async/await？</h3>
+						<ul>
+							<li class="fragment">1. async/await 的传染性，让代码维护变得灾难</li>
+							<li class="fragment">2. 周边库的不成熟，有些甚至会给服务带来巨大的隐患</li>
+							<li class="fragment">3. 性能相比其余的协程方案并没有任何优势</li>
+							<li class="fragment">4. 存量代码的迁移又是新的灾难</li>
+						</ul>
+					</section>
+					<section>
+						<h3>那么，我们选择的 coroutine 方案是什么</h3>
+						<ul>
+							<li class="fragment">Greenlet</li>
+						</ul>
+					</section>
+					<section>
+						<h3>Greenlet 是什么？</h3>
+						<ul>
+							<li class="fragment">一个 coroutine 方案</li>
+							<li class="fragment">底层通过 C 和汇编实现</li>
+							<li class="fragment">通过对 Python 对象封装，来完成切换的操作</li>
+						</ul>
+					</section>
+					<section>
+						<h3>看看 Greenlet 的简单使用</h3>
+						<pre><code data-trim class="python">
+from greenlet import greenlet
+
+def test1():
+	print(12)
+	gr2.switch()
+	print(34)
+
+def test2():
+	print(56)
+	gr1.switch()
+	print(78)
+
+gr1 = greenlet(run=test1)
+gr2 = greenlet(run=test2)
+gr1.switch()
+						</code></pre>
+					</section>
+					<section>
+						<p>通过，Switch 方法我们完成 coroutine 的上下文切换</p>
+						<pre><code data-trim class="python">
+static int
+slp_switch(void)
+{
+	int err;
+	void* rbp;
+	void* rbx;
+	unsigned int csr;
+	unsigned short cw;
+	register long *stackref, stsizediff;
+	__asm__ volatile ("" : : : REGS_TO_SAVE);
+	__asm__ volatile ("fstcw %0" : "=m" (cw));
+	__asm__ volatile ("stmxcsr %0" : "=m" (csr));
+	__asm__ volatile ("movq %%rbp, %0" : "=m" (rbp));
+	__asm__ volatile ("movq %%rbx, %0" : "=m" (rbx));
+	__asm__ ("movq %%rsp, %0" : "=g" (stackref));
+	{
+		SLP_SAVE_STATE(stackref, stsizediff);
+		__asm__ volatile (
+			"addq %0, %%rsp\n"
+			"addq %0, %%rbp\n"
+			:
+			: "r" (stsizediff)
+			);
+		SLP_RESTORE_STATE();
+		__asm__ volatile ("xorq %%rax, %%rax" : "=a" (err));
+	}
+	__asm__ volatile ("movq %0, %%rbx" : : "m" (rbx));
+	__asm__ volatile ("movq %0, %%rbp" : : "m" (rbp));
+	__asm__ volatile ("ldmxcsr %0" : : "m" (csr));
+	__asm__ volatile ("fldcw %0" : : "m" (cw));
+	__asm__ volatile ("" : : : REGS_TO_SAVE);
+	return err;
+}								
+						</code></pre>
+					</section>
+					<section>
+						<p>但是 Greenlet 始终只是一个不带事件驱动的 coroutine 方案，所以社区基于 Greenlet 提供了几个完整的方案</p>
+						<ul>
+							<li class="fragment">Gevent</li>
+							<li class="fragment">Eventlet</li>
+							<li class="fragment">我们来聊聊 Gevent</li>
+						</ul>
+					</section>
+					<section>
+						<p>Gevent</p>
+						<ul>
+							<li class="fragment">基于 libuv/libev 封装了一套事件驱动</li>
+							<li class="fragment">提供了网络，及 I/O 的支持，同时实现了很多协议的解析</li>
+							<li class="fragment">通过 monkey-patch ,解决存量的代码，并且降低使用门槛</li>
+						</ul>
+					</section>
+					<section>
+						<p>Gevent 的简单的代码示例</p>
+						<pre><code data-trim class="python">
+from gevent import monkey; monkey.patch_all()
+import gevent
+import requests
+
+def f(url):
+	print('GET: %s' % url)
+	data=requests.get(url).text
+	print('%d bytes received from %s.' % (len(data), url))
+
+gevent.joinall([
+		gevent.spawn(f, 'https://www.python.org/'),
+		gevent.spawn(f, 'https://www.yahoo.com/'),
+		gevent.spawn(f, 'https://github.com/'),
+])
+						</code></pre>
+					</section>
+					<section>
+						<h3>好了，聊聊 async/await VS greenlet</h3>
+					</section>
+					<section>
+							<h3>async/await 的现状</h3>
+							<h4 class="fragment">能不能上生产？</h4>
+							<h4 class="fragment">可以！</h4>
+							<h4 class="fragment">适不适合上生产？</h4>
+							<h4 class="fragment">不适合</h4>
+					</section>
+					<section>
+						<h3>Why?</h3>
+					</section>
+					<section>
+						<h3>async/await 的现状</h3>
+						<ul>
+							<li class="fragment">存量代码太大，迁移成本高</li>
+							<li class="fragment">生态不成熟。目前周边几个主流的支撑库都存在着一些缺陷，有些可能会造成非常大影响</li>
+							<li class="fragment">官方的事件驱动循环不完善</li>
+							<li class="fragment">性能和 Gevent 相比没有更为突出的点</li>
+							<li class="fragment">yield/yield from 诞生之初并不是为了 coroutine 所设计的，导致我们在特定情况想去对 coroutine 级别做 trace 时变得异常困难</li>
+						</ul>
+					</section>
+					<section>
+						<h3>Greenlet 的现状</h3>
+						<ul>
+							<li class="fragment">通过基于 Greenlet 所做的一些方案提供的接口，我们可以很方便的完成存量代码的迁移</li>
+							<li class="fragment">基于 libuv/libev ，性能上有所保证</li>
+							<li class="fragment">提供了独立的 API ，能方便的接受切换时的上下文做 trace</li>
+							<li class="fragment">第三方库的支持不确定，对于日后新版本的 Python 的更新也不确定</li>
+						</ul>
+					</section>
+					<section>
+						<h3>总结</h3>
+						<ul>
+							<li class="fragment">对于线上环境，在有必要使用 coroutine 方案的情况下，可以使用 Gevent/Eventlet ，同时再有必要的情况下，可以对 coroutine 进行 trace（但是必然会造成性能损失，不过也一般仅限于调试使用了）</li>
+							<li class="fragment">async/await 在未来可能会成为最主流的 coroutine 方案，但是目前，因为其没有脱离 yield/yield from 机制所带来的局限性以及传染性等局限性，建议可以在实验性项目中使用，如果上生产，请做好吃屎的准备</li>
+						</ul>
+					</section>
+					<section>
+						<img src="https://user-images.githubusercontent.com/7054676/41169344-47229c56-6b7b-11e8-8ce3-b67bb82186b0.png" alt="Python">
+					</section>
+					<section>
+						<h1 style="font-style: italic; font-family: 'IM FELL English';">Thanks!</h1>
+						<h2 style="font-style: italic; font-family: 'IM FELL English';">Q&amp;A</h2>
+					</section>
 			</div>
 		</div>
 
@@ -42,7 +432,10 @@
 					{ src: 'plugin/markdown/markdown.js' },
 					{ src: 'plugin/notes/notes.js', async: true },
 					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
-				]
+				],
+				mouseWheel:true,
+				slideNumber:"c/t",
+				progress: true,
 			});
 		</script>
 	</body>
